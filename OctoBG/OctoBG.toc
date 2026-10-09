@@ -1,0 +1,18 @@
+## Interface: 11200
+## Title: |cff33ccffOcto|rBG
+## Notes: All-in-one battleground addon: flag carriers (click to target / Mind Vision), where the EFC is hiding, AB and AV cap timers, spirit resurrection timers, INC announcements, enemy radar HUD and tactical map. /obg
+## Author: bdot1
+## Version: 1.0.0
+## SavedVariables: OctoBGDB
+## OptionalDeps: Spy, EnemyCooldowns, Rangecheck, SuperAPI, NampowerSettings
+
+core\Core.lua
+core\Util.lua
+core\Map.lua
+core\Tracker.lua
+modules\Flags.lua
+modules\Timers.lua
+modules\Incoming.lua
+modules\HUD.lua
+modules\TacMap.lua
+modules\Options.lua

@@ -1,0 +1,13 @@
+<Bindings>
+  <Binding name="OCTOBG_TARGET_EFC" header="OCTOBG">OctoBG_TargetEFC();</Binding>
+  <Binding name="OCTOBG_SPELL_EFC">OctoBG_SpellEFC();</Binding>
+  <Binding name="OCTOBG_TARGET_FFC">OctoBG_TargetFFC();</Binding>
+  <Binding name="OCTOBG_INC_AUTO">OctoBG_Inc("auto");</Binding>
+  <Binding name="OCTOBG_INC_1">OctoBG_Inc("1");</Binding>
+  <Binding name="OCTOBG_INC_2">OctoBG_Inc("2");</Binding>
+  <Binding name="OCTOBG_INC_3">OctoBG_Inc("3");</Binding>
+  <Binding name="OCTOBG_INC_4">OctoBG_Inc("4");</Binding>
+  <Binding name="OCTOBG_INC_5">OctoBG_Inc("5+");</Binding>
+  <Binding name="OCTOBG_SAFE">OctoBG_Safe();</Binding>
+  <Binding name="OCTOBG_HUD">OctoBG_ToggleHUD();</Binding>
+</Bindings>
