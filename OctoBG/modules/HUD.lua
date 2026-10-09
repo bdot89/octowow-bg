@@ -176,7 +176,7 @@ function H:DrawEnemies(f, now, px, py, facing, rotate, scale)
           local r, g, bl = U.ClassColor(u.class)
           local a = 1
           if age > 1.5 then a = math.max(0.4, 1 - (age - 1.5) / 6.5) end
-          local ts = edge and 10 or 16
+          local ts = (edge and 10 or 16) * B.db.markers.size
           b.tri:SetWidth(ts)
           b.tri:SetHeight(ts)
           b.tri:SetVertexColor(r, g, bl, a)
@@ -190,7 +190,7 @@ function H:DrawEnemies(f, now, px, py, facing, rotate, scale)
           if u.showName and u.visible and not edge then
             b.name:SetText(u.name or "")
             b.name:SetTextColor(r, g, bl, a)
-            b.name:SetPoint("TOP", f, "CENTER", ox, oy - 8)
+            b.name:SetPoint("TOP", f, "CENTER", ox, oy - ts / 2)
             b.name:Show()
           else
             b.name:Hide()

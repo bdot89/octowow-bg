@@ -103,7 +103,25 @@ end
 
 -- ---------------------------------------------------------------- colours / text
 
+-- High-contrast class colours for markers on a dark map. The 1.12 client's
+-- RAID_CLASS_COLORS gives Shaman the Paladin pink and a dull Warlock purple,
+-- and Warrior tan sits close to Druid orange; these are saturated and apart.
+U.BRIGHT = {
+  WARRIOR = { 0.92, 0.74, 0.52 },
+  PALADIN = { 1.0, 0.42, 0.75 },
+  HUNTER  = { 0.45, 1.0, 0.2 },
+  ROGUE   = { 1.0, 0.96, 0.15 },
+  PRIEST  = { 1.0, 1.0, 1.0 },
+  SHAMAN  = { 0.1, 0.42, 1.0 },
+  MAGE    = { 0.3, 0.9, 1.0 },
+  WARLOCK = { 0.66, 0.4, 1.0 },
+  DRUID   = { 1.0, 0.5, 0.0 },
+}
+
 function U.ClassColor(token)
+  local m = B.db and B.db.markers
+  local bc = token and m and m.bright and U.BRIGHT[token]
+  if bc then return bc[1], bc[2], bc[3] end
   local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
   if c then return c.r, c.g, c.b end
   return 0.75, 0.75, 0.75

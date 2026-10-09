@@ -57,6 +57,9 @@ no `#` / `%` / string methods / `select` / `...` expressions, 32 upvalues, 200 l
   stale positions fade (map to 50 %, HUD to 40 %); raid members = smaller round `pip.tga`; stealth
   marks = purple `badge.tga` ring + class `pip.tga`. All have black rims (RGB black survives
   SetVertexColor). `db.map.dim` darkens the tiles (`/obg dim 0-90`).
+- Class colours (user asked for "a lot clearer", 9 Oct 2026): `U.ClassColor` returns `U.BRIGHT`
+  (saturated; Shaman blue, since 1.12's RAID_CLASS_COLORS has Shaman = Paladin pink) while
+  `db.markers.bright` is on, else the game's colours. `db.markers.size` scales HUD and map triangles.
 - Confirmed working from the user's AB screenshot: the AB world state parse (prediction rows),
   spirit guide timers with landmark labels, EnemyCooldowns icons in the list, enemy distances
   across the map.

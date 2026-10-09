@@ -47,6 +47,7 @@ B.DEFAULTS = {
   list = { enabled = true, rows = 8 },
   map = { enabled = true, width = 260, enemies = true, dim = 0.3 },   -- dim: black over the map tiles
   stealth = { enabled = true, alert = true, range = 60 },   -- range: alert when they stealth this close
+  markers = { bright = true, size = 1.25 },   -- bright: U.BRIGHT class colours; size: HUD/map marker scale
   reach = {},        -- per zone: how far enemies were picked up (Tracker)
   viewBackup = nil,  -- CVars as they were before /obg maxview
 }

@@ -95,7 +95,7 @@ function TM:Layout()
   -- marker sizes grow with the map: stealth ring, its centre, enemy triangle, raid member
   self.ringS = math.max(12, math.min(20, w / 32))
   self.pipS = self.ringS * 0.55
-  self.triS = self.ringS * 1.15
+  self.triS = self.ringS * 1.15 * B.db.markers.size
   self.palS = self.ringS * 0.6
   for i = 1, table.getn(self.foes) do Size(self.foes[i], self.triS) end
   for i = 1, table.getn(self.pals) do Size(self.pals[i], self.palS) end

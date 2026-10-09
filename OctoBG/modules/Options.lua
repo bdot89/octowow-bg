@@ -7,7 +7,7 @@ local U = B.U
 local O = { checks = {}, sliders = {} }
 B.Options = O
 
-local W, H = 380, 670
+local W, H = 380, 710
 
 StaticPopupDialogs["OCTOBG_AUTOPOST"] = {
   text = "OctoBG: post INC calls to /bg automatically when enemies reach the base you are standing at?\n\n(At most one call every 20 seconds, only for 2 or more enemies.)",
@@ -211,6 +211,12 @@ function O:Build()
   Slider(f, "Panel scale", x1 + 4, y, 0.6, 1.6, 0.05, function() return db.scale end, function(v) db.scale = v U.ApplyScale() end, "%.2f")
   Slider(f, "Map darkness (%)", x2 + 4, y, 0, 90, 5, function() return math.floor(db.map.dim * 100 + 0.5) end,
     function(v) db.map.dim = v / 100 B.TacMap:Layout() end)
+  y = y - 40
+  Slider(f, "Enemy marker size", x1 + 4, y, 0.8, 2, 0.05, function() return db.markers.size end,
+    function(v) db.markers.size = v B.TacMap:Layout() end, "%.2f")
+  Check(f, "Bright class colours", x2, y + 3, function() return db.markers.bright end,
+    function(v) db.markers.bright = v end,
+    "Saturated class colours that stay apart on the map (Shaman blue, not Paladin pink). Off: the game's own colours.")
 
   local by = -H + 34
   self.layoutBtn = Button(f, "Layout mode", 86, 12, by, function()
