@@ -28,7 +28,7 @@ local CALL_EVERY = 20
 local GUID_HEAD = "0x00000000"   -- player GUIDs: the top half is zero
 
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
-local KINDS = { "Stealth", "Prowl", "Vanish", "Shadowmeld" }
+local KINDS = { "Stealth", "Prowl", "Vanish", "Shadowmeld", "Invisibility", "Sap", "Pick Pocket" }
 local FACS = { "Alliance", "Horde" }
 local CLASS_ID, KIND_ID, FAC_ID = {}, {}, {}
 for i = 1, table.getn(CLASSES) do CLASS_ID[CLASSES[i]] = i end
@@ -43,7 +43,7 @@ local function Pack(guid)
 end
 
 local function Unpack(s)
-  if string.len(s) == 8 then return GUID_HEAD .. s end
+  if string.find(s, "^%x%x%x%x%x%x%x%x$") then return GUID_HEAD .. s end
   return s
 end
 
@@ -131,20 +131,21 @@ local function ClassName(token)
 end
 
 function SY:CallText(m)
-  local who = m.name or "?"
   local cls = ClassName(m.class)
-  if cls then who = who .. " (" .. cls .. ")" end
+  local who = m.name or ("unseen " .. string.lower(cls or "enemy"))
+  if cls and m.name then who = who .. " (" .. cls .. ")" end
   local where = m.x and M:Describe(m.x, m.y, m.z)
   return m.kind .. ": " .. who .. (where and (" - " .. where) or "")
 end
 
-B:On("OBG_STEALTH", function(ev, key, m)
+-- quiet = a mark moved (Tracker:Touch): shared again, not called out again.
+B:On("OBG_STEALTH", function(ev, key, m, quiet)
   if not m or m.remote then return end
   if m.x and KIND_ID[m.kind] and string.sub(key, 1, 5) ~= "name:" then
     Send("S~" .. Pack(key) .. "," .. (CLASS_ID[m.class or ""] or 0) .. "," .. KIND_ID[m.kind] .. ","
       .. Round(m.x) .. "," .. Round(m.y) .. "," .. (m.name or ""))
   end
-  if B.db.stealth.shout and B:IsBG() then
+  if B.db.stealth.shout and B:IsBG() and not quiet then
     local now = GetTime()
     if now - (SY.called[key] or 0) >= CALL_EVERY and not SY.pending[key] then
       SY.pending[key] = { at = now + 0.2 + math.random() }

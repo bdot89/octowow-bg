@@ -87,6 +87,15 @@ no `#` / `%` / string methods / `select` / `...` expressions, 32 upvalues, 200 l
 - Stealth: besides nampower, the combat log ("X gains Stealth." / "X performs Vanish.") marks
   enemies by name ("name:<name>" key, at the player's own position, class from the spell).
   `db.stealth.shout` posts callouts to /bg (asked first, off by default).
+- Hidden enemies (user asked how to track invisible enemies, 9 Oct 2026): `T.STEALTH` also has
+  Invisibility (3680 Lesser Invisibility, 11392 Invisibility, 4079 Gnomish Cloaking Device -
+  spell ids from memory, NOT checked against this client's Spell.dbc yet; the combat log names
+  catch them either way). `T.CLUE` Sap 6770/2070/11297 and Pick Pocket 921 on the player or a
+  group member (`FriendPos` only accepts those) marks the caster GUID at the target; the log
+  fallback keys it "sap:<target>". `T:Touch` re-pins a mark when a marked GUID hits someone
+  (fires OBG_STEALTH with quiet = true: shared again, never called out again). Circle speed per
+  kind: `KIND_SPEED` (Invisibility 7, Shadowmeld 1, else 5). Sync KINDS gained Invisibility, Sap,
+  Pick Pocket (indexes 5-7; older clients ignore them). Sync Unpack only expands 8 hex digits.
 - Timers panel (user: "make the bars clearer"): dark track under each bar, statusbar texture,
   white outlined labels (the AB score label was blue on a blue bar), owner shown as a 3 px strip,
   times in gold when close, "Res waves" header; the player's own nearest graveyard marked

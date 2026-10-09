@@ -53,6 +53,10 @@ still see them, a purple marker stays where they disappeared, with a circle grow
 speed for where they could be now (20 s). Alert and sound when it happens within 60 yd.
 Nothing can show a stealthed enemy beyond that: the server stops sending them to your client.
 Also picked up from the combat log ("gains Stealth"), so it works without nampower too.
+Invisibility potions and the Gnomish Cloaking Device are marked the same way (their circle
+grows faster: they move at full speed). Clues from hidden rogues: a Sap or Pick Pocket on you
+or anyone in your group pins the rogue right there, and any hit from a marked enemy while
+still unseen moves the mark to that spot and shrinks the circle again.
 "Call out stealth in /bg" (off by default, asks first) posts e.g. `Stealth: Name (Rogue) -
 Blacksmith`; when several OctoBG users see it, only one posts.
 

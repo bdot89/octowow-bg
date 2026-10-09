@@ -127,12 +127,24 @@ end
 -- attacker, SPELL_DAMAGE_EVENT_OTHER / SPELL_HEAL_BY_OTHER arg2 = caster,
 -- BUFF_ADDED_OTHER arg1 = unit (layout documented in Spy's SpyNampower.lua).
 B:On("SPELL_START_OTHER", function(ev, item, spell, caster) T:Consider(caster) end, true)
-B:On("SPELL_GO_OTHER", function(ev, item, spell, caster)
+B:On("SPELL_GO_OTHER", function(ev, item, spell, caster, target)
   T:Consider(caster)
-  if T.STEALTH[spell] then T:Stealthed(caster, spell) end
+  if T.STEALTH[spell] then
+    T:Stealthed(caster, spell)
+  elseif T.CLUE[spell] then
+    T:Clue(caster, target, T.CLUE[spell])
+  elseif T.stealth[caster] then
+    T:Touch(caster, target)
+  end
 end, true)
-B:On("AUTO_ATTACK_OTHER", function(ev, attacker) T:Consider(attacker) end, true)
-B:On("SPELL_DAMAGE_EVENT_OTHER", function(ev, target, caster) T:Consider(caster) end, true)
+B:On("AUTO_ATTACK_OTHER", function(ev, attacker, target)
+  T:Consider(attacker)
+  if T.stealth[attacker] then T:Touch(attacker, target) end
+end, true)
+B:On("SPELL_DAMAGE_EVENT_OTHER", function(ev, target, caster)
+  T:Consider(caster)
+  if T.stealth[caster] then T:Touch(caster, target) end
+end, true)
 B:On("SPELL_HEAL_BY_OTHER", function(ev, target, caster) T:Consider(caster) end, true)
 -- BUFF_ADDED/REMOVED_OTHER: arg1 = unit, arg3 = spell id (Spy reads them so)
 B:On("BUFF_ADDED_OTHER", function(ev, guid, a2, spell)
@@ -165,8 +177,19 @@ T.STEALTH = {
   [5215] = "Prowl", [6783] = "Prowl", [9913] = "Prowl",
   [20580] = "Shadowmeld",
   [1856] = "Vanish", [1857] = "Vanish", [11327] = "Vanish", [11329] = "Vanish",
+  -- Lesser Invisibility / Invisibility potions, Gnomish Cloaking Device
+  [3680] = "Invisibility", [11392] = "Invisibility", [4079] = "Invisibility",
 }
+-- Spells a stealthed rogue casts without leaving stealth: they were next to
+-- the target (Sap 10 yd range, Pick Pocket 5 yd).
+T.CLUE = {
+  [6770] = "Sap", [2070] = "Sap", [11297] = "Sap",
+  [921] = "Pick Pocket",
+}
+-- Yards a second they may move: stealth is slowed, invisibility potions are
+-- not, Shadowmeld ends on moving (a Night Elf rogue's Stealth is its own mark).
 T.STEALTH_SPEED = 5
+local KIND_SPEED = { Invisibility = 7, Shadowmeld = 1 }
 local STEALTH_KEEP, STEALTH_MAX = 20, 40
 
 -- stealth[guid] = { name, class, kind, x, y, at, lastSeen, alertAt }
@@ -210,7 +233,7 @@ function T:StealthAlert(m, d, near)
   if not (near or (d and d <= B.db.stealth.range)) then return end
   m.alertAt = now
   local r, g, b = U.ClassColor(m.class)
-  U.Alert((m.name or "?") .. " - " .. string.lower(m.kind) .. " " .. (d and (math.floor(d) .. " yd") or "nearby"), r, g, b, true)
+  U.Alert((m.name or "Hidden enemy") .. " - " .. string.lower(m.kind) .. " " .. (d and (math.floor(d) .. " yd") or "nearby"), r, g, b, true)
 end
 
 function T:Stealthed(guid, spell)
@@ -234,8 +257,9 @@ end
 -- has no GUID for yet): "Name gains Stealth." / "Name performs Vanish.".
 -- Without a GUID the mark goes where the player stands: the hostile buff log
 -- only reaches nearby players.
-local LOG_KIND = { stealth = "Stealth", prowl = "Prowl", shadowmeld = "Shadowmeld", vanish = "Vanish" }
-local KIND_CLASS = { Stealth = "ROGUE", Vanish = "ROGUE", Prowl = "DRUID" }
+local LOG_KIND = { stealth = "Stealth", prowl = "Prowl", shadowmeld = "Shadowmeld", vanish = "Vanish",
+  ["lesser invisibility"] = "Invisibility", invisibility = "Invisibility", cloaking = "Invisibility" }
+local KIND_CLASS = { Stealth = "ROGUE", Vanish = "ROGUE", Prowl = "DRUID", Sap = "ROGUE", ["Pick Pocket"] = "ROGUE" }
 T.KIND_CLASS = KIND_CLASS
 
 function T:StealthByName(name, kind)
@@ -259,14 +283,92 @@ end
 
 local function OnStealthLog(ev, msg)
   if not msg then return end
-  local _, _, name, spell = string.find(msg, "^(%S+) gains (%a+)%.$")
-  if not name then _, _, name, spell = string.find(msg, "^(%S+) performs (%a+)%.$") end
-  if not name then _, _, name, spell = string.find(msg, "^(%S+) casts (%a+)%.$") end
+  local _, _, name, spell = string.find(msg, "^(%S+) gains ([%a ]+)%.$")
+  if not name then _, _, name, spell = string.find(msg, "^(%S+) performs ([%a ]+)%.$") end
+  if not name then _, _, name, spell = string.find(msg, "^(%S+) casts ([%a ]+)%.$") end
   local kind = spell and LOG_KIND[string.lower(spell)]
   if kind then T:StealthByName(name, kind) end
 end
 B:On("CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_BUFFS", OnStealthLog, true)
 B:On("CHAT_MSG_SPELL_HOSTILEPLAYER_BUFF", OnStealthLog, true)
+
+-- ---------------------------------------------------------------- clues
+
+-- World position of the player or a group member, found by GUID or name;
+-- nil for anyone else (so an enemy target never counts).
+local function FriendPos(guid, name)
+  local unit
+  if (guid and guid == U.GuidOf("player")) or (name and name == UnitName("player")) then
+    unit = "player"
+  else
+    local nr = GetNumRaidMembers()
+    local prefix, count = "raid", nr
+    if nr == 0 then prefix, count = "party", GetNumPartyMembers() end
+    for i = 1, count do
+      local u = prefix .. i
+      if (guid and U.GuidOf(u) == guid) or (name and UnitName(u) == name) then
+        unit = u
+        break
+      end
+    end
+  end
+  if not unit then return nil end
+  return B.Map:UnitWorld(unit)
+end
+
+-- A rogue used Sap / Pick Pocket on target: mark them next to it. The caster
+-- is usually out of this client's object list, so the GUID is all there is.
+function T:Clue(caster, target, kind)
+  if not B.db.stealth.enabled or type(caster) ~= "string" then return end
+  local u = self.units[caster]
+  if u and u.visible then return end
+  local x, y = FriendPos(target)   -- only a Sap on one of ours says "enemy rogue here"
+  if not x then return end
+  local old = self.stealth[caster]
+  local name = (u and u.name) or (old and old.name) or UnitName(caster)
+  local m = self:SetMark(caster, name, (u and u.class) or (old and old.class) or "ROGUE", kind, x, y)
+  m.remote = nil
+  local px, py = B.Map:PlayerWorld()
+  self:StealthAlert(m, px and B.Map.Dist(px, py, x, y))
+  B:Fire("OBG_STEALTH", caster, m)
+end
+
+-- A marked enemy hit someone while still unseen: pin the mark on them (or on
+-- the target they hit), shrinking the circle back to nothing.
+function T:Touch(guid, target)
+  local m = self.stealth[guid]
+  if not m then return end
+  local x, y = U.Position(guid)
+  if not x then x, y = FriendPos(target) end
+  if not x then return end
+  m.x, m.y, m.lastSeen, m.remote = x, y, GetTime(), nil
+  B:Fire("OBG_STEALTH", guid, m, true)
+end
+
+-- Combat log for the same: "You are afflicted by Sap." / "Name is afflicted
+-- by Sap." (no caster named). Skipped when nampower marked it already.
+local function OnSapLog(ev, msg)
+  if not msg or not B.db.stealth.enabled then return end
+  local _, _, who = string.find(msg, "^(.+) is afflicted by Sap")
+  if not who then
+    if not string.find(msg, "^You are afflicted by Sap") then return end
+    who = UnitName("player")
+  end
+  local now = GetTime()
+  for _, s in pairs(T.stealth) do
+    if s.kind == "Sap" and now - s.at < 2 then return end
+  end
+  local x, y = FriendPos(nil, who)
+  if not x then return end
+  local key = "sap:" .. who
+  local m = T:SetMark(key, nil, "ROGUE", "Sap", x, y)
+  local px, py = B.Map:PlayerWorld()
+  T:StealthAlert(m, px and B.Map.Dist(px, py, x, y))
+  B:Fire("OBG_STEALTH", key, m)
+end
+B:On("CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE", OnSapLog, true)
+B:On("CHAT_MSG_SPELL_PERIODIC_PARTY_DAMAGE", OnSapLog, true)
+B:On("CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE", OnSapLog, true)
 
 -- ---------------------------------------------------------------- shared by the raid
 
@@ -309,7 +411,7 @@ end
 
 -- Yards the stealthed enemy may have moved since last seen.
 function T:StealthRadius(m, now)
-  return (now - m.lastSeen) * self.STEALTH_SPEED
+  return (now - m.lastSeen) * (KIND_SPEED[m.kind] or self.STEALTH_SPEED)
 end
 
 -- ---------------------------------------------------------------- reach
