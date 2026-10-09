@@ -57,6 +57,10 @@ Invisibility potions and the Gnomish Cloaking Device are marked the same way (th
 grows faster: they move at full speed). Clues from hidden rogues: a Sap or Pick Pocket on you
 or anyone in your group pins the rogue right there, and any hit from a marked enemy while
 still unseen moves the mark to that spot and shrinks the circle again.
+Range clues: when an enemy you can see heals or buffs a player you can't, that player is
+hidden within 40 yd of the caster. OctoBG marks them ("Hidden") and every further cast
+narrows the circle to where the ranges overlap - several healers, or one healer moving, pin
+the hidden player down.
 "Call out stealth in /bg" (off by default, asks first) posts e.g. `Stealth: Name (Rogue) -
 Blacksmith`; when several OctoBG users see it, only one posts.
 

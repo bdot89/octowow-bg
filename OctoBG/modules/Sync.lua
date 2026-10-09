@@ -4,7 +4,8 @@
 -- battleground, RAID or PARTY in the open world):
 --   P  enemy positions: each client sends the enemies in its own object list,
 --      6 per message, one message a second, taking turns through the list
---   S  an enemy going into stealth (where), D  that stealth ending
+--   S  an enemy going into stealth (where, and how far they may be from it:
+--      range clues give a circle, not a point), D  that stealth ending
 --   G  spirit guide waves (seconds to the next one) and where the guide stands
 --   C  "I called this stealth out in /bg", so one client shouts, not all
 -- Only first-hand data is sent, so nothing echoes from client to client.
@@ -28,7 +29,7 @@ local CALL_EVERY = 20
 local GUID_HEAD = "0x00000000"   -- player GUIDs: the top half is zero
 
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
-local KINDS = { "Stealth", "Prowl", "Vanish", "Shadowmeld", "Invisibility", "Sap", "Pick Pocket" }
+local KINDS = { "Stealth", "Prowl", "Vanish", "Shadowmeld", "Invisibility", "Sap", "Pick Pocket", "Hidden" }
 local FACS = { "Alliance", "Horde" }
 local CLASS_ID, KIND_ID, FAC_ID = {}, {}, {}
 for i = 1, table.getn(CLASSES) do CLASS_ID[CLASSES[i]] = i end
@@ -143,7 +144,7 @@ B:On("OBG_STEALTH", function(ev, key, m, quiet)
   if not m or m.remote then return end
   if m.x and KIND_ID[m.kind] and string.sub(key, 1, 5) ~= "name:" then
     Send("S~" .. Pack(key) .. "," .. (CLASS_ID[m.class or ""] or 0) .. "," .. KIND_ID[m.kind] .. ","
-      .. Round(m.x) .. "," .. Round(m.y) .. "," .. (m.name or ""))
+      .. Round(m.x) .. "," .. Round(m.y) .. "," .. (m.name or "") .. "," .. Round(m.r0 or 0))
   end
   if B.db.stealth.shout and B:IsBG() and not quiet then
     local now = GetTime()
@@ -192,7 +193,9 @@ local function OnStealth(body)
   local x, y, kind = tonumber(f[4]), tonumber(f[5]), KINDS[tonumber(f[3]) or 0]
   if nf >= 6 and x and y and kind then
     local name = f[6] ~= "" and f[6] or nil
-    B.Tracker:RemoteStealth(Unpack(f[1]), name, CLASSES[tonumber(f[2]) or 0] or B.Tracker.KIND_CLASS[kind], kind, x, y)
+    local r0 = tonumber(f[7] or "")
+    B.Tracker:RemoteStealth(Unpack(f[1]), name, CLASSES[tonumber(f[2]) or 0] or B.Tracker.KIND_CLASS[kind], kind, x, y,
+      (r0 and r0 > 0) and r0 or nil)
   end
 end
 

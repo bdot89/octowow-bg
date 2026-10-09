@@ -136,6 +136,7 @@ B:On("SPELL_GO_OTHER", function(ev, item, spell, caster, target)
   elseif T.stealth[caster] then
     T:Touch(caster, target)
   end
+  if target then T:RangeClue(caster, target) end
 end, true)
 B:On("AUTO_ATTACK_OTHER", function(ev, attacker, target)
   T:Consider(attacker)
@@ -222,6 +223,7 @@ function T:SetMark(key, name, class, kind, x, y)
     self.nstealth = self.nstealth + 1
   end
   m.name, m.class, m.kind, m.x, m.y, m.at, m.lastSeen = name, class or m.class, kind, x, y, now, now
+  m.r0 = nil
   return m
 end
 
@@ -341,7 +343,7 @@ function T:Touch(guid, target)
   local x, y = U.Position(guid)
   if not x then x, y = FriendPos(target) end
   if not x then return end
-  m.x, m.y, m.lastSeen, m.remote = x, y, GetTime(), nil
+  m.x, m.y, m.lastSeen, m.remote, m.r0 = x, y, GetTime(), nil, nil
   B:Fire("OBG_STEALTH", guid, m, true)
 end
 
@@ -370,6 +372,70 @@ B:On("CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE", OnSapLog, true)
 B:On("CHAT_MSG_SPELL_PERIODIC_PARTY_DAMAGE", OnSapLog, true)
 B:On("CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE", OnSapLog, true)
 
+-- ---------------------------------------------------------------- range clues
+
+-- An enemy this client sees casts on a player it does not see. In a
+-- battleground every player of our side is in the raid, so an unseen target
+-- that is not ours is one of theirs, hidden (stealth, invisibility) within
+-- spell range of the caster: heals and buffs reach 40 yd at most. Each such
+-- cast narrows the mark to where the old circle and the caster's range meet.
+local HELP_RANGE = 40
+local CLUE_CASTER_MAX = 250   -- farther casters: the target may just be past visibility
+
+-- Shrink mark m to its overlap with the disc (px, py, R). Returns false when
+-- the disc tells nothing new (the mark already lies inside it).
+local function Narrow(m, now, px, py, R)
+  local r = T:StealthRadius(m, now)
+  local dx, dy = px - m.x, py - m.y
+  local d = math.sqrt(dx * dx + dy * dy)
+  if d + r <= R then return false end
+  if d + R <= r or d >= r + R then
+    -- the caster's range lies inside the old circle, or misses it (old guess was wrong)
+    m.x, m.y, m.r0 = px, py, R
+  else
+    -- the lens where both discs meet: its middle along the line of centres,
+    -- and a radius reaching both its ends and the points where the circles cross
+    local a, b = math.max(-r, d - R), math.min(r, d + R)
+    local mid = (a + b) / 2
+    local xc = (d * d + r * r - R * R) / (2 * d)
+    local h = math.sqrt(math.max(0, r * r - xc * xc))
+    m.x, m.y = m.x + dx / d * mid, m.y + dy / d * mid
+    m.r0 = math.max((b - a) / 2, math.sqrt((xc - mid) * (xc - mid) + h * h))
+  end
+  m.lastSeen = now
+  return true
+end
+T.Narrow = Narrow
+
+function T:RangeClue(caster, target)
+  if not B.db.stealth.enabled or not B:IsBG() or type(target) ~= "string" or target == caster then return end
+  if string.sub(target, 1, 10) ~= "0x00000000" then return end   -- players only (not pets, NPCs)
+  local cu = self.units[caster]
+  if not cu or not cu.visible then return end
+  if U.GuidExists(target) or FriendPos(target) then return end
+  local cx, cy = U.Position(caster)
+  if not cx then cx, cy = cu.x, cu.y end
+  if not cx then return end
+  local px, py = B.Map:PlayerWorld()
+  local cd = cu.dist or (px and B.Map.Dist(px, py, cx, cy))
+  if not cd or cd > CLUE_CASTER_MAX then return end
+  local now = GetTime()
+  local m = self.stealth[target]
+  if m and m.x then
+    if Narrow(m, now, cx, cy, HELP_RANGE) then
+      m.remote = nil
+      B:Fire("OBG_STEALTH", target, m, true)
+    end
+    return
+  end
+  local u = self.units[target]
+  local name = (u and u.name) or UnitName(target)
+  m = self:SetMark(target, name, u and u.class, "Hidden", cx, cy)
+  m.r0 = HELP_RANGE
+  if px then self:StealthAlert(m, math.max(0, B.Map.Dist(px, py, cx, cy) - HELP_RANGE)) end
+  B:Fire("OBG_STEALTH", target, m)
+end
+
 -- ---------------------------------------------------------------- shared by the raid
 
 -- An enemy another OctoBG user sees (Sync.lua). The own client's view wins:
@@ -389,16 +455,16 @@ function T:Remote(guid, name, class, x, y, hp, from)
   u.hp, u.hpmax = hp, 100
   if hp == 0 then u.dead = true else u.dead = nil end
   local m = self.stealth[guid]
-  if m then m.x, m.y, m.lastSeen = x, y, now end
+  if m then m.x, m.y, m.lastSeen, m.r0 = x, y, now, nil end
 end
 
 -- A stealth another OctoBG user saw.
-function T:RemoteStealth(guid, name, class, kind, x, y)
+function T:RemoteStealth(guid, name, class, kind, x, y, r0)
   if not B.db.stealth.enabled then return end
   local u = self.units[guid]
   if u and u.visible then return end   -- this client sees it itself
   local m = self:SetMark(guid, name, class, kind, x, y)
-  m.remote = true
+  m.remote, m.r0 = true, r0
   local px, py = B.Map:PlayerWorld()
   if px and x then self:StealthAlert(m, B.Map.Dist(px, py, x, y)) end
 end
@@ -411,7 +477,7 @@ end
 
 -- Yards the stealthed enemy may have moved since last seen.
 function T:StealthRadius(m, now)
-  return (now - m.lastSeen) * (KIND_SPEED[m.kind] or self.STEALTH_SPEED)
+  return (m.r0 or 0) + (now - m.lastSeen) * (KIND_SPEED[m.kind] or self.STEALTH_SPEED)
 end
 
 -- ---------------------------------------------------------------- reach
@@ -537,7 +603,7 @@ function T:Scan()
       end
       local m = self.stealth[guid]
       if m then
-        m.x, m.y, m.lastSeen = u.x or m.x, u.y or m.y, now
+        m.x, m.y, m.lastSeen, m.r0 = u.x or m.x, u.y or m.y, now, nil
       end
       if not u.losAt or now - u.losAt > 0.5 then
         u.los = U.InSight(guid)

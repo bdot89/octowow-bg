@@ -96,6 +96,14 @@ no `#` / `%` / string methods / `select` / `...` expressions, 32 upvalues, 200 l
   (fires OBG_STEALTH with quiet = true: shared again, never called out again). Circle speed per
   kind: `KIND_SPEED` (Invisibility 7, Shadowmeld 1, else 5). Sync KINDS gained Invisibility, Sap,
   Pick Pocket (indexes 5-7; older clients ignore them). Sync Unpack only expands 8 hex digits.
+- Range clues (user asked to "triangulate", 9 Oct 2026; enemy clients' data is out of reach -
+  never try to get it): `T:RangeClue` on SPELL_GO_OTHER when a visible enemy (within 250 yd)
+  targets a player GUID that is neither in our object list nor our group, battlegrounds only
+  (our whole side is in the raid there) -> "Hidden" mark, radius 40 yd. Later clues `Narrow`
+  it to the overlap (lens bounding circle). Marks now carry `m.r0` (radius at lastSeen;
+  `StealthRadius` = r0 + growth; every refresh with a real position clears it); Sync S has it
+  as field 7. NOT verified in game: that nampower's SPELL_GO_OTHER arg4 is the target GUID and
+  that the server sends the cast when the target is unseen.
 - Timers panel (user: "make the bars clearer"): dark track under each bar, statusbar texture,
   white outlined labels (the AB score label was blue on a blue bar), owner shown as a 3 px strip,
   times in gold when close, "Res waves" header; the player's own nearest graveyard marked
