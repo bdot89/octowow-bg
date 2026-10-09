@@ -7,7 +7,7 @@ local U = B.U
 local O = { checks = {}, sliders = {} }
 B.Options = O
 
-local W, H = 380, 710
+local W, H = 380, 732
 
 StaticPopupDialogs["OCTOBG_AUTOPOST"] = {
   text = "OctoBG: post INC calls to /bg automatically when enemies reach the base you are standing at?\n\n(At most one call every 20 seconds, only for 2 or more enemies.)",
@@ -20,6 +20,23 @@ StaticPopupDialogs["OCTOBG_AUTOPOST"] = {
   end,
   OnCancel = function()
     B.db.inc.autoPost = false
+    O:Refresh()
+  end,
+  timeout = 0,
+  whileDead = 1,
+  hideOnEscape = 1,
+}
+
+StaticPopupDialogs["OCTOBG_SHOUT"] = {
+  text = "OctoBG: post to /bg when you see an enemy go into Stealth, Prowl, Vanish or Shadowmeld?\n\n(Once per enemy every 20 seconds; when several OctoBG users see it, only one posts.)",
+  button1 = YES,
+  button2 = NO,
+  OnAccept = function()
+    B.db.stealth.shout = true
+    O:Refresh()
+  end,
+  OnCancel = function()
+    B.db.stealth.shout = false
     O:Refresh()
   end,
   timeout = 0,
@@ -188,6 +205,13 @@ function O:Build()
     "Where enemies went into Stealth, Prowl, Vanish or Shadowmeld, with a circle for how far they may have moved since.")
   Check(f, "Stealth alert (60 yd)", x2, y, function() return db.stealth.alert end, function(v) db.stealth.alert = v end,
     "Alert and sound when an enemy stealths within " .. db.stealth.range .. " yards.")
+  y = y - 22
+  Check(f, "Call out stealth in /bg", x1, y, function() return db.stealth.shout end, function(v)
+    db.stealth.shout = false
+    if v then StaticPopup_Show("OCTOBG_SHOUT") end
+  end, "Posts e.g. \"Stealth: Name (Rogue) - Blacksmith\" to /bg. Asks before switching on. Off by default.")
+  Check(f, "Share with OctoBG raid", x2, y, function() return db.sync.enabled end, function(v) db.sync.enabled = v end,
+    "Other OctoBG users in your battleground share the enemies, stealths and res waves they see: enemies across the whole map show up on your map and HUD. /obg sync lists who is sharing.")
 
   y = y - 28
   Label(f, "Tactical map", x1, y, 11, 1, 0.82, 0)
@@ -368,6 +392,14 @@ B:Command("dim","<0-90> darken the tactical map so the markers stand out", funct
   B.db.map.dim = math.max(0, math.min(90, v)) / 100
   B.TacMap:Layout()
   O:Refresh()
+end)
+B:Command("sync", "OctoBG users sharing with you (last minute)", function()
+  local names, n = B.Sync:PeerList()
+  if n == 0 then
+    B:Print("nobody sharing yet" .. (B.db.sync.enabled and "" or " (sharing is off)"))
+  else
+    B:Print(n .. " sharing: " .. table.concat(names, ", "))
+  end
 end)
 B:Command("calib", "forget the learned facing/axes and learn them again", function()
   B.Map:ResetCalibration()

@@ -12,6 +12,7 @@ core\Map.lua
 core\Tracker.lua
 modules\Flags.lua
 modules\Timers.lua
+modules\Sync.lua
 modules\Incoming.lua
 modules\HUD.lua
 modules\TacMap.lua

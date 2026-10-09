@@ -21,8 +21,10 @@ on the map; up close SuperWoW's position adds the height (roof / lower level).
 - alerts when the enemy takes our flag and when the EFC drops below 30% health
 - key bindings: target EFC, flag spell on EFC, target our FC
 
-**Timers** - one panel of bars:
-- spirit resurrection waves for every graveyard OctoBG has seen (spirit guides heal every 30 s)
+**Timers** - one panel of bars (click any row to post it to /bg, e.g. "Res wave at Farm in 12s"):
+- "Res waves": the next resurrection wave at every graveyard OctoBG (or a raid member running
+  it) has seen - spirit guides heal every 30 s. The graveyard you would rise at says "(you)",
+  so you can time your death
 - while dead in a battleground a big "Resurrection in N" (or "Release - next wave in N")
 - Arathi Basin: all five bases with the map icon, 60 s capture timer after an assault
 - Alterac Valley: 5 min timers on attacked towers and graveyards
@@ -50,6 +52,14 @@ flag carriers and the AB/AV objective icons. Enemies wear a bold ring in their f
 still see them, a purple marker stays where they disappeared, with a circle growing at stealth
 speed for where they could be now (20 s). Alert and sound when it happens within 60 yd.
 Nothing can show a stealthed enemy beyond that: the server stops sending them to your client.
+Also picked up from the combat log ("gains Stealth"), so it works without nampower too.
+"Call out stealth in /bg" (off by default, asks first) posts e.g. `Stealth: Name (Rogue) -
+Blacksmith`; when several OctoBG users see it, only one posts.
+
+**Raid sharing** - every OctoBG user in your battleground shares the enemies, stealths and
+res waves their client sees (hidden addon messages). Enemies seen by a teammate across the map
+show on your map, HUD and enemy list. `/obg sync` lists who is sharing; untick "Share with
+OctoBG raid" to stop.
 
 **Open world** - tick "Outside battlegrounds too" and the HUD, enemy list and tactical map work
 in every zone (world PvP).
@@ -72,7 +82,7 @@ It reads (never writes) Spy's and EnemyCooldowns' enemy tables when they are loa
 ## Commands
 
 `/obg` options, `/obg unlock` / `lock` layout mode, `/obg hud` HUD on/off, `/obg reset` default
-positions, `/obg calib` relearn facing, `/obg status`, `/obg probe` (prints what the client
+positions, `/obg sync` who is sharing, `/obg calib` relearn facing, `/obg status`, `/obg probe` (prints what the client
 returns - paste it in a bug report), `/obg errors`.
 
 The first time you run in a battleground (or with the HUD on) OctoBG learns which way your

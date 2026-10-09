@@ -23,7 +23,8 @@ local EVFAC = { CHAT_MSG_BG_SYSTEM_ALLIANCE = "Alliance", CHAT_MSG_BG_SYSTEM_HOR
 local ICON_RES = "Interface\\Icons\\Spell_Holy_Resurrection"
 local ICON_WATCH = "Interface\\Icons\\INV_Misc_PocketWatch_01"
 local POI = "Interface\\Minimap\\POIIcons"
-local ROW_H, WIDTH, MAX_ROWS = 16, 214, 16
+local ROW_H, WIDTH, MAX_ROWS = 18, 236, 20
+local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 
 -- ---------------------------------------------------------------- spirit guides
 
@@ -53,13 +54,13 @@ B:On("SPELL_START_OTHER", function(ev, item, spell, caster, target, flags, castT
   local g = Guide(caster)
   if not g then return end
   local ms = (duration and duration > 0 and duration) or (castTime and castTime > 0 and castTime) or WAVE * 1000
-  g.anchor = GetTime() + ms / 1000
+  g.anchor, g.own = GetTime() + ms / 1000, true
 end, true)
 
 B:On("SPELL_GO_OTHER", function(ev, item, spell, caster)
   if spell ~= SPIRIT_HEAL then return end
   local g = Guide(caster)
-  if g then g.anchor = GetTime() end
+  if g then g.anchor, g.own = GetTime(), true end
 end, true)
 
 function S:Remaining(g, now)
@@ -85,12 +86,23 @@ function S:Label(g, now)
   return label
 end
 
--- The guide the player would rise at: the nearest one.
+-- A wave another OctoBG user measured (Sync.lua): rem = seconds to its next
+-- wave. Waves this client measured itself are kept.
+function S:Remote(guid, faction, rem, x, y)
+  local g = Guide(guid)
+  if not g then return end
+  if not g.faction then g.faction = faction end
+  if not g.own then g.anchor = GetTime() + rem end
+  if x and not g.x then g.x, g.y, g.labelAt = x, y, 0 end
+end
+
+-- The guide the player would rise at: the nearest one of the player's side
+-- (any side when the guide's faction is unknown).
 function S:Nearest()
   local best, bestD
   local px, py = M:PlayerWorld()
   for _, g in pairs(self.guides) do
-    if g.anchor then
+    if g.anchor and (not g.faction or not B.faction or g.faction == B.faction) then
       local d = U.Distance(g.guid)
       if not d and g.x and px then d = M.Dist(px, py, g.x, g.y) end
       if d and (not bestD or d < bestD) then best, bestD = g, d end
@@ -116,7 +128,7 @@ B:On("AREA_SPIRIT_HEALER_IN_RANGE", function()
   if t and t > 0 then
     S.areaWave = GetTime() + t
     local g = S:Nearest()
-    if g then g.anchor = S.areaWave end
+    if g then g.anchor, g.own = S.areaWave, true end
   end
 end, true)
 
@@ -286,13 +298,17 @@ end
 
 -- ---------------------------------------------------------------- rows
 
+-- A row: icon, owner strip (who holds the base / whose graveyard), a bar on a
+-- dark track, white label, time on the right. post = the line a click sends
+-- to /bg; header = a section title.
 local function Entry(n)
   local e = TM.pool[n]
   if not e then
     e = {}
     TM.pool[n] = e
   end
-  e.icon, e.coords, e.label, e.text, e.value, e.color, e.labelColor = nil, nil, nil, nil, nil, nil, nil
+  e.icon, e.coords, e.label, e.text, e.value, e.color = nil, nil, nil, nil, nil, nil
+  e.owner, e.labelColor, e.post, e.header, e.hot = nil, nil, nil, nil, nil
   return e
 end
 
@@ -307,6 +323,44 @@ local function PoiCoords(name)
   return m.coords
 end
 
+local GREY = { 0.7, 0.7, 0.7 }
+local GOLD = { 1, 0.82, 0 }
+
+function TM:CollectGuides(n, now)
+  local list = {}
+  for _, g in pairs(S.guides) do
+    if g.anchor then table.insert(list, g) end
+  end
+  if table.getn(list) == 0 then return n end
+  local own, near = B.faction, S:Nearest()
+  table.sort(list, function(a, b)
+    local ao, bo = (a.faction == own) and 0 or 1, (b.faction == own) and 0 or 1
+    if ao ~= bo then return ao < bo end
+    return S:Label(a, now) < S:Label(b, now)
+  end)
+  n = n + 1
+  local e = Entry(n)
+  e.header, e.label = true, "Res waves - click to post"
+  for i = 1, math.min(table.getn(list), 8) do
+    local g = list[i]
+    local rem = S:Remaining(g, now)
+    local label = S:Label(g, now)
+    n = n + 1
+    e = Entry(n)
+    e.icon, e.text = ICON_RES, U.Time(rem)
+    e.value, e.color, e.owner = 1 - rem / WAVE, U.FACTION[g.faction] or GREY, U.FACTION[g.faction]
+    e.hot = rem <= 5
+    if g == near then
+      e.label, e.labelColor = label .. " (you)", GOLD
+    else
+      e.label = label
+    end
+    local enemy = g.faction and own and g.faction ~= own
+    e.post = (enemy and "Enemy res at " or "Res wave at ") .. label .. " in " .. U.Time(rem) .. "s"
+  end
+  return n
+end
+
 function TM:Collect(now)
   local n = 0
   local e
@@ -315,6 +369,7 @@ function TM:Collect(now)
     e = Entry(n)
     e.icon, e.label, e.text = ICON_WATCH, "Battle begins", U.Time(O.start - now)
     e.value, e.color = 1 - (O.start - now) / 120, { 0.8, 0.8, 0.8 }
+    e.post = "Battle begins in " .. U.Time(O.start - now)
   end
 
   if B.zone == "AB" then
@@ -330,16 +385,22 @@ function TM:Collect(now)
         e.text = U.Time(node.ends - now)
         e.value = 1 - (node.ends - now) / node.dur
         e.color = U.FACTION[node.by]
+        e.hot = node.ends - now <= 10
+        e.post = name .. ": " .. node.by .. " takes it in " .. U.Time(node.ends - now)
+      elseif node and node.owner then
+        e.post = name .. ": " .. node.owner .. " holds it"
       end
-      if node and node.owner then e.labelColor = U.FACTION[node.owner] end
+      if node and node.owner then e.owner = U.FACTION[node.owner] end
     end
   else
     for name, node in pairs(O.nodes) do
-      if node.ends and node.ends > now and n < MAX_ROWS - 4 then
+      if node.ends and node.ends > now and n < MAX_ROWS - 10 then
         n = n + 1
         e = Entry(n)
         e.label, e.text = name, U.Time(node.ends - now)
         e.value, e.color = 1 - (node.ends - now) / node.dur, U.FACTION[node.by]
+        e.hot = node.ends - now <= 30
+        e.post = name .. ": " .. node.by .. " takes it in " .. U.Time(node.ends - now)
         local coords = PoiCoords(name)
         if coords then e.icon, e.coords = POI, coords end
       end
@@ -361,29 +422,17 @@ function TM:Collect(now)
       if p.cur then
         n = n + 1
         e = Entry(n)
-        e.icon, e.label = U.FLAG[fac], p.cur .. "/" .. (p.max or "?")
+        local score = p.cur .. "/" .. (p.max or "?")
+        e.icon, e.label, e.owner = U.FLAG[fac], fac .. " " .. score, U.FACTION[fac]
         e.text = p.eta and ((fac == best and "wins " or "") .. U.Time(p.eta)) or ""
         e.value, e.color = p.cur / (p.max or 2000), U.FACTION[fac]
-        e.labelColor = U.FACTION[fac]
+        e.post = fac .. " " .. score
+          .. (p.eta and ((fac == best and " - wins in " or " - reaches the end in ") .. U.Time(p.eta)) or "")
       end
     end
   end
 
-  if B.db.timers.spirit then
-    local list = {}
-    for _, g in pairs(S.guides) do
-      if g.anchor then table.insert(list, g) end
-    end
-    table.sort(list, function(a, b) return (a.faction or "") < (b.faction or "") end)
-    for i = 1, math.min(table.getn(list), 6) do
-      local g = list[i]
-      local rem = S:Remaining(g, now)
-      n = n + 1
-      e = Entry(n)
-      e.icon, e.label, e.text = ICON_RES, S:Label(g, now), U.Time(rem)
-      e.value, e.color = 1 - rem / WAVE, U.FACTION[g.faction] or { 0.7, 0.7, 0.7 }
-    end
-  end
+  if B.db.timers.spirit then n = self:CollectGuides(n, now) end
   return n
 end
 
@@ -391,52 +440,86 @@ end
 function TM:Samples(now)
   local n = 0
   local e
+  local A, H = U.FACTION.Alliance, U.FACTION.Horde
   local data = {
     { ICON_WATCH, "Battle begins", 45, 120, { 0.8, 0.8, 0.8 } },
-    { POI, "Stables", 37, 60, U.FACTION.Horde },
-    { POI, "Blacksmith", 12, 60, U.FACTION.Alliance },
-    { ICON_RES, "Alliance graveyard", 8, 30, U.FACTION.Alliance },
-    { ICON_RES, "Horde graveyard", 21, 30, U.FACTION.Horde },
+    { POI, "Stables", 37, 60, H, A },
+    { POI, "Blacksmith", 12, 60, A, H },
+    { "header", "Res waves - click to post" },
+    { ICON_RES, "Stables (you)", 8, 30, A, A },
+    { ICON_RES, "Alliance graveyard", 21, 30, A, A },
+    { ICON_RES, "Farm", 14, 30, H, H },
   }
   for i = 1, table.getn(data) do
     local d = data[i]
-    local rem = d[4] - math.mod(now + d[3], d[4])
     n = n + 1
     e = Entry(n)
-    e.icon, e.label, e.text = d[1], d[2], U.Time(rem)
-    if d[1] == POI and WorldMap_GetPOITextureCoords then
-      local l, r, t, b = WorldMap_GetPOITextureCoords(i == 2 and 38 or 27)
-      e.coords = { l, r, t, b }
+    if d[1] == "header" then
+      e.header, e.label = true, d[2]
+    else
+      local rem = d[4] - math.mod(now + d[3], d[4])
+      e.icon, e.label, e.text = d[1], d[2], U.Time(rem)
+      if d[1] == POI and WorldMap_GetPOITextureCoords then
+        local l, r, t, b = WorldMap_GetPOITextureCoords(i == 2 and 38 or 27)
+        e.coords = { l, r, t, b }
+      end
+      e.value, e.color, e.owner, e.hot = 1 - rem / d[4], d[5], d[6], rem <= 5
+      if i == 5 then e.labelColor = GOLD end
+      e.post = d[2] .. " in " .. U.Time(rem)
     end
-    e.value, e.color = 1 - rem / d[4], d[5]
   end
   return n
 end
 
 -- ---------------------------------------------------------------- UI
 
+local BAR_X = ROW_H + 3   -- icon, then the owner strip, then the bar
+
 function TM:Build()
   local f = U.Panel("OctoBGTimers", "timers", "Timers", WIDTH, ROW_H * 5 + 4, "RIGHT", -40, 120)
-  U.Backdrop(f, 0.7)
+  U.Backdrop(f, 0.75)
   f:Hide()
   self.frame = f
+  local barW = WIDTH - 4 - BAR_X
   for i = 1, MAX_ROWS do
-    local r = CreateFrame("Frame", nil, f)
+    local r = CreateFrame("Button", nil, f)
     r:SetWidth(WIDTH - 4)
-    r:SetHeight(ROW_H - 1)
+    r:SetHeight(ROW_H - 2)
     r:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2 - (i - 1) * ROW_H)
-    r.bar = U.Tex(r, U.WHITE, "BACKGROUND")
-    r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", ROW_H, 0)
-    r.bar:SetHeight(ROW_H - 1)
+    r:RegisterForClicks("LeftButtonUp")
+    -- separate draw layers so the stacking is fixed: track < bar < strip/icon < text
+    r.track = U.Tex(r, U.WHITE, "BACKGROUND")
+    r.track:SetPoint("TOPLEFT", r, "TOPLEFT", BAR_X, 0)
+    r.track:SetWidth(barW)
+    r.track:SetHeight(ROW_H - 2)
+    r.track:SetVertexColor(0.16, 0.16, 0.19, 0.95)
+    r.bar = U.Tex(r, BAR_TEX, "BORDER")
+    r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", BAR_X, 0)
+    r.bar:SetHeight(ROW_H - 2)
+    r.owner = U.Tex(r, U.WHITE, "ARTWORK")
+    r.owner:SetPoint("TOPLEFT", r, "TOPLEFT", ROW_H - 1, 0)
+    r.owner:SetWidth(3)
+    r.owner:SetHeight(ROW_H - 2)
     r.icon = U.Tex(r, nil, "ARTWORK")
-    r.icon:SetWidth(ROW_H - 2)
-    r.icon:SetHeight(ROW_H - 2)
+    r.icon:SetWidth(ROW_H - 3)
+    r.icon:SetHeight(ROW_H - 3)
     r.icon:SetPoint("LEFT", r, "LEFT", 0, 0)
-    r.label = U.Text(r, 10, U.NARROW)
-    r.label:SetPoint("LEFT", r, "LEFT", ROW_H + 3, 0)
+    r.label = U.Text(r, 11, U.NARROW)
+    r.label:SetPoint("LEFT", r, "LEFT", BAR_X + 4, 0)
     r.label:SetJustifyH("LEFT")
-    r.text = U.Text(r, 11)
-    r.text:SetPoint("RIGHT", r, "RIGHT", -3, 0)
+    r.text = U.Text(r, 12)
+    r.text:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+    r:SetScript("OnClick", function()
+      if this.post then U.SendBG(this.post) end
+    end)
+    r:SetScript("OnEnter", function()
+      if not this.post then return end
+      GameTooltip:SetOwner(this, "ANCHOR_LEFT")
+      GameTooltip:AddLine("Click: post to /bg")
+      GameTooltip:AddLine(this.post, 1, 1, 1, 1)
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r:Hide()
     self.rows[i] = r
   end
@@ -446,6 +529,54 @@ function TM:Build()
   big.text = U.Text(big, 24)
   big.text:SetPoint("CENTER", big, "CENTER", 0, 0)
   self.big = big
+end
+
+function TM:PaintRow(r, e, barW)
+  r.post = e.post
+  if e.header then
+    r.icon:Hide()
+    r.owner:Hide()
+    r.track:Hide()
+    r.bar:Hide()
+    r.label:SetText(e.label or "")
+    r.label:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    r.text:SetText("")
+    r:Show()
+    return
+  end
+  if e.icon then
+    r.icon:SetTexture(e.icon)
+    if e.coords then
+      r.icon:SetTexCoord(e.coords[1], e.coords[2], e.coords[3], e.coords[4])
+    else
+      r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    end
+    r.icon:Show()
+  else
+    r.icon:Hide()
+  end
+  if e.owner then
+    r.owner:SetVertexColor(e.owner[1], e.owner[2], e.owner[3], 1)
+    r.owner:Show()
+  else
+    r.owner:Hide()
+  end
+  r.track:Show()
+  r.label:SetText(e.label or "")
+  local lc = e.labelColor
+  if lc then r.label:SetTextColor(lc[1], lc[2], lc[3]) else r.label:SetTextColor(1, 1, 1) end
+  r.text:SetText(e.text or "")
+  if e.hot then r.text:SetTextColor(1, 0.82, 0) else r.text:SetTextColor(1, 1, 1) end
+  if e.value and e.color then
+    local v = math.max(0.01, math.min(1, e.value))
+    r.bar:SetWidth(barW * v)
+    r.bar:SetTexCoord(0, v, 0, 1)
+    r.bar:SetVertexColor(e.color[1], e.color[2], e.color[3], 0.9)
+    r.bar:Show()
+  else
+    r.bar:Hide()
+  end
+  r:Show()
 end
 
 function TM:Paint(now)
@@ -462,40 +593,16 @@ function TM:Paint(now)
     f:SetHeight(n * ROW_H + 4)
     if not f:IsShown() then f:Show() end
   end
-  local barW = WIDTH - 4 - ROW_H
+  local barW = WIDTH - 4 - BAR_X
   for i = 1, MAX_ROWS do
     local r = self.rows[i]
-    local e = (i <= n) and self.pool[i]
-    if e then
-      if e.icon then
-        r.icon:SetTexture(e.icon)
-        if e.coords then
-          r.icon:SetTexCoord(e.coords[1], e.coords[2], e.coords[3], e.coords[4])
-        else
-          r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        end
-        r.icon:Show()
-      else
-        r.icon:Hide()
-      end
-      r.label:SetText(e.label or "")
-      local lc = e.labelColor
-      if lc then r.label:SetTextColor(lc[1], lc[2], lc[3]) else r.label:SetTextColor(1, 1, 1) end
-      r.text:SetText(e.text or "")
-      if e.value and e.color then
-        local v = math.max(0.01, math.min(1, e.value))
-        r.bar:SetWidth(barW * v)
-        r.bar:SetVertexColor(e.color[1], e.color[2], e.color[3], 0.55)
-        r.bar:Show()
-      else
-        r.bar:Hide()
-      end
-      r:Show()
+    if i <= n then
+      self:PaintRow(r, self.pool[i], barW)
     else
+      r.post = nil
       r:Hide()
     end
   end
-
   -- the big resurrection countdown
   local big = self.big
   local show, msg = false, nil

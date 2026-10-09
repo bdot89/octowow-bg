@@ -181,12 +181,11 @@ function T:DropStealth(guid)
   end
 end
 
-function T:Stealthed(guid, spell)
-  if not B.db.stealth.enabled then return end
-  local u = self:Consider(guid)
-  if not u then return end
+-- Create or refresh a stealth mark. key is the GUID, or "name:<name>" when
+-- only the combat log named the enemy.
+function T:SetMark(key, name, class, kind, x, y)
   local now = GetTime()
-  local m = self.stealth[guid]
+  local m = self.stealth[key]
   if not m then
     if self.nstealth >= STEALTH_MAX then
       local oldG, oldT
@@ -196,18 +195,110 @@ function T:Stealthed(guid, spell)
       if oldG then self:DropStealth(oldG) end
     end
     m = {}
-    self.stealth[guid] = m
+    self.stealth[key] = m
     self.nstealth = self.nstealth + 1
   end
-  local x, y = U.Position(guid)
+  m.name, m.class, m.kind, m.x, m.y, m.at, m.lastSeen = name, class or m.class, kind, x, y, now, now
+  return m
+end
+
+-- On-screen alert for a stealth close by. d = yards, or nil with near = true
+-- when only the combat log saw it (that log reaches a short way only).
+function T:StealthAlert(m, d, near)
+  local now = GetTime()
+  if not B.db.stealth.alert or now - (m.alertAt or 0) <= 10 then return end
+  if not (near or (d and d <= B.db.stealth.range)) then return end
+  m.alertAt = now
+  local r, g, b = U.ClassColor(m.class)
+  U.Alert((m.name or "?") .. " - " .. string.lower(m.kind) .. " " .. (d and (math.floor(d) .. " yd") or "nearby"), r, g, b, true)
+end
+
+function T:Stealthed(guid, spell)
+  self:StealthMark(guid, self.STEALTH[spell])
+end
+
+function T:StealthMark(guid, kind)
+  if not B.db.stealth.enabled or not kind then return end
+  local u = self:Consider(guid)
+  if not u then return end
+  local x, y, z = U.Position(guid)
   if not x then x, y = u.x, u.y end
-  m.name, m.class, m.kind, m.x, m.y, m.at, m.lastSeen = u.name, u.class, self.STEALTH[spell], x, y, now, now
-  local d = U.Distance(guid)
-  if B.db.stealth.alert and d and d <= B.db.stealth.range and now - (m.alertAt or 0) > 10 then
-    m.alertAt = now
-    local r, g, b = U.ClassColor(u.class)
-    U.Alert((u.name or "?") .. " - " .. string.lower(m.kind) .. " " .. math.floor(d) .. " yd", r, g, b, true)
+  if u.name then self:DropStealth("name:" .. u.name) end
+  local m = self:SetMark(guid, u.name, u.class, kind, x, y)
+  m.z = z
+  self:StealthAlert(m, U.Distance(guid))
+  B:Fire("OBG_STEALTH", guid, m)   -- Sync shares it and may call it out in /bg
+end
+
+-- Combat log fallback (works without nampower, and for enemies the tracker
+-- has no GUID for yet): "Name gains Stealth." / "Name performs Vanish.".
+-- Without a GUID the mark goes where the player stands: the hostile buff log
+-- only reaches nearby players.
+local LOG_KIND = { stealth = "Stealth", prowl = "Prowl", shadowmeld = "Shadowmeld", vanish = "Vanish" }
+local KIND_CLASS = { Stealth = "ROGUE", Vanish = "ROGUE", Prowl = "DRUID" }
+T.KIND_CLASS = KIND_CLASS
+
+function T:StealthByName(name, kind)
+  if not B.db.stealth.enabled then return end
+  local u = self:FindByName(name)
+  if u and not u.fake then
+    self:StealthMark(u.guid, kind)
+    return
   end
+  local now = GetTime()
+  for _, s in pairs(self.stealth) do
+    if s.name == name and now - s.lastSeen < 2 then return end   -- nampower already marked it
+  end
+  local px, py = B.Map:PlayerWorld()
+  if not px then return end
+  local key = "name:" .. name
+  local m = self:SetMark(key, name, KIND_CLASS[kind], kind, px, py)
+  self:StealthAlert(m, nil, true)
+  B:Fire("OBG_STEALTH", key, m)
+end
+
+local function OnStealthLog(ev, msg)
+  if not msg then return end
+  local _, _, name, spell = string.find(msg, "^(%S+) gains (%a+)%.$")
+  if not name then _, _, name, spell = string.find(msg, "^(%S+) performs (%a+)%.$") end
+  if not name then _, _, name, spell = string.find(msg, "^(%S+) casts (%a+)%.$") end
+  local kind = spell and LOG_KIND[string.lower(spell)]
+  if kind then T:StealthByName(name, kind) end
+end
+B:On("CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_BUFFS", OnStealthLog, true)
+B:On("CHAT_MSG_SPELL_HOSTILEPLAYER_BUFF", OnStealthLog, true)
+
+-- ---------------------------------------------------------------- shared by the raid
+
+-- An enemy another OctoBG user sees (Sync.lua). The own client's view wins:
+-- nothing is changed for a unit in this client's object list.
+function T:Remote(guid, name, class, x, y, hp, from)
+  local u = self.units[guid]
+  if u and (u.fake or U.GuidExists(guid)) then return end
+  local now = GetTime()
+  if not u then
+    if self.count >= MAX_UNITS then self:DropOldest() end
+    u = { guid = guid, first = now }
+    self.units[guid] = u
+    self.count = self.count + 1
+  end
+  u.name, u.class = name or u.name, class or u.class
+  u.x, u.y, u.z, u.posAt, u.seen, u.remoteAt, u.from = x, y, nil, now, now, now, from
+  u.hp, u.hpmax = hp, 100
+  if hp == 0 then u.dead = true else u.dead = nil end
+  local m = self.stealth[guid]
+  if m then m.x, m.y, m.lastSeen = x, y, now end
+end
+
+-- A stealth another OctoBG user saw.
+function T:RemoteStealth(guid, name, class, kind, x, y)
+  if not B.db.stealth.enabled then return end
+  local u = self.units[guid]
+  if u and u.visible then return end   -- this client sees it itself
+  local m = self:SetMark(guid, name, class, kind, x, y)
+  m.remote = true
+  local px, py = B.Map:PlayerWorld()
+  if px and x then self:StealthAlert(m, B.Map.Dist(px, py, x, y)) end
 end
 
 -- Vanish's own aura ends while its stealth goes on, so only the stealth
@@ -327,6 +418,7 @@ function T:Scan()
     self:Harvest()
   end
   local sorted, n = self.sorted, 0
+  local px, py
   for guid, u in pairs(self.units) do
     if u.fake then
       n = n + 1
@@ -366,6 +458,14 @@ function T:Scan()
       end
       u.visible = nil
       u.dist = nil
+      if u.remoteAt and now - u.remoteAt < 3 and u.x then
+        -- shared by the raid: in the list, distance from the positions
+        if not px then px, py = B.Map:PlayerWorld() end
+        if px then u.dist = B.Map.Dist(px, py, u.x, u.y) end
+        u.los = nil
+        n = n + 1
+        sorted[n] = u
+      end
       if now - u.seen > FORGET then
         self.units[guid] = nil
         self.count = self.count - 1
